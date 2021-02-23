@@ -33,6 +33,9 @@ class FreyaFS(Operations):
         self.enc_files = EncFilesManager()
         self.enc_info = {}
 
+        print(f"[*] FreyaFS mounted")
+        print(f"Now you can access Mix&Slice encrypted data at {root} seemlessly through the FreyaFS mountpoint.")
+
     # --------------------------------------------------------------------- Helpers
 
     def _full_path(self, path):
