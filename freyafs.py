@@ -1,3 +1,4 @@
+from mixslice import MixSlice
 import sys
 import os
 import errno
@@ -9,8 +10,8 @@ from encfilesmanager import EncFilesManager
 from encfilesinfo import EncFilesInfo
 
 
-def is_encrypted_metadata(path=''):
-    return path.endswith('.private') or path.endswith('.public')
+def is_metadata(path=''):
+    return path.endswith('.finfo')
 
 
 def join_paths(root, partial):
@@ -46,12 +47,7 @@ class FreyaFS(Operations):
 
     def _metadata_names(self, path):
         filename = strip_dot_enc(path)
-
-        public = self._metadata_full_path(f'{filename}.public')
-        private = self._metadata_full_path(f'{filename}.private')
-        finfo = self._metadata_full_path(f'{filename}.finfo')
-
-        return public, private, finfo
+        return self._metadata_full_path(f'{filename}.finfo')
 
     def _update_enc_file_size(self, full_path):
         self.enc_info[full_path].size = self.enc_files.cur_size(full_path)
@@ -81,17 +77,24 @@ class FreyaFS(Operations):
     # Attributi di path (file o cartella)
     def getattr(self, path, fh=None):
         full_path = self._full_path(path)
-        public_metadata, _, finfo = self._metadata_names(path)
-        
+        finfo = self._metadata_names(path)
+
         st = os.lstat(full_path)
 
-        if path == '/' or not os.path.exists(public_metadata):
+        def _is_directory(path):
+            for file in os.listdir(path):
+                if not file.startswith("frag_") or not file.endswith(".dat") or \
+                        not os.path.isfile(os.path.join(path, file)):
+                    return True
+            return False
+
+        if _is_directory(self._full_path(path)):
             return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
                                                             'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
         try:
             if full_path not in self.enc_info:
-                self.enc_info[full_path] = EncFilesInfo(full_path, public_metadata, finfo)
+                self.enc_info[full_path] = EncFilesInfo(full_path, finfo)
 
             return {
                 'st_mode': stat.S_IFREG | (st.st_mode & ~stat.S_IFDIR),
@@ -114,7 +117,7 @@ class FreyaFS(Operations):
         if os.path.isdir(full_path):
             real_stuff = os.listdir(full_path)
             virtual_stuff = [
-                x for x in real_stuff if not is_encrypted_metadata(x)]
+                x for x in real_stuff if not is_metadata(x)]
             dirents.extend(virtual_stuff)
 
         for r in dirents:
@@ -133,11 +136,13 @@ class FreyaFS(Operations):
 
     def rmdir(self, path):
         os.rmdir(self._full_path(path))
-        os.rmdir(self._metadata_full_path(path))
+        if self.root != self.metadata_root:
+            os.rmdir(self._metadata_full_path(path))
 
     def mkdir(self, path, mode):
         os.mkdir(self._full_path(path), mode)
-        os.mkdir(self._metadata_full_path(path), mode)
+        if self.root != self.metadata_root:
+            os.mkdir(self._metadata_full_path(path), mode)
 
     def statfs(self, path):
         full_path = self._full_path(path)
@@ -148,10 +153,8 @@ class FreyaFS(Operations):
 
     def unlink(self, path):
         full_path = self._full_path(path)
-        public_metadata, private_metadata, finfo = self._metadata_names(path)
+        finfo = self._metadata_names(path)
 
-        os.unlink(public_metadata)
-        os.unlink(private_metadata)
         if os.path.isfile(finfo):
             os.unlink(finfo)
 
@@ -173,11 +176,9 @@ class FreyaFS(Operations):
             if self._is_file(new):
                 self.unlink(new)
 
-            old_public_metadata, old_private_metadata, old_finfo = self._metadata_names(old)
-            new_public_metadata, new_private_metadata, new_finfo = self._metadata_names(new)
+            old_finfo = self._metadata_names(old)
+            new_finfo = self._metadata_names(new)
 
-            os.rename(old_public_metadata, new_public_metadata)
-            os.rename(old_private_metadata, new_private_metadata)
             if os.path.isfile(old_finfo):
                 os.rename(old_finfo, new_finfo)
 
@@ -185,17 +186,18 @@ class FreyaFS(Operations):
 
             if full_old_path in self.enc_files:
                 self.enc_files.rename(full_old_path, full_new_path)
-            
+
             if full_old_path in self.enc_info:
-                self.enc_info[full_old_path].rename(full_new_path, new_public_metadata, new_finfo)
+                self.enc_info[full_old_path].rename(full_new_path, new_finfo)
                 self.enc_info[full_new_path] = self.enc_info[full_old_path]
                 del self.enc_info[full_old_path]
         else:
             # Rinomino una cartella
-            old_metadata_path = self._metadata_full_path(old)
-            new_metadata_path = self._metadata_full_path(new)            
-            os.rename(old_metadata_path, new_metadata_path)
             os.rename(full_old_path, full_new_path)
+            if self.root != self.metadata_root:
+                old_metadata_path = self._metadata_full_path(old)
+                new_metadata_path = self._metadata_full_path(new)
+                os.rename(old_metadata_path, new_metadata_path)
 
     def link(self, target, name):
         return os.link(self._full_path(target), self._full_path(name))
@@ -203,9 +205,7 @@ class FreyaFS(Operations):
     def utimens(self, path, times=None):
         os.utime(self._full_path(path), times)
 
-        public_metadata, private_metadata, finfo_metadata = self._metadata_names(path)
-        os.utime(public_metadata, times)
-        os.utime(private_metadata, times)
+        finfo_metadata = self._metadata_names(path)
         os.utime(finfo_metadata, times)
 
     # --------------------------------------------------------------------- File methods
@@ -213,15 +213,13 @@ class FreyaFS(Operations):
     def open(self, path, flags):
         full_path = self._full_path(path)
 
-        public_metadata, private_metadata, _ = self._metadata_names(path)
         attr = self.getattr(path)
-        self.enc_files.open(full_path, public_metadata, private_metadata, attr['st_mtime'])
+        self.enc_files.open(full_path, attr['st_mtime'])
         return 0
 
     def create(self, path, mode, fi=None):
         full_path = self._full_path(path)
-        public_metadata, private_metadata, _ = self._metadata_names(path)
-        self.enc_files.create(full_path, public_metadata, private_metadata)
+        self.enc_files.create(full_path)
         return 0
 
     def read(self, path, length, offset, fh):

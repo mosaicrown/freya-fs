@@ -1,9 +1,9 @@
 import os
 import threading
-
-from aesmix import MixSlice
 from time import time
+
 from filebytecontent import FileByteContent
+from mixslice import MixSlice
 
 LOCK = threading.Lock()
 
@@ -15,8 +15,6 @@ class EncFilesManager():
         self.open_files = {}
         self.open_counters = {}
         self.touched_files = {}
-        self.public_metafiles = {}
-        self.private_metafiles = {}
 
         self.atimes = {}
         self.mtimes = {}
@@ -27,28 +25,19 @@ class EncFilesManager():
     # ------------------------------------------------------ Helpers
 
     def _decrypt(self, path):
-        public_metafiles = self.public_metafiles[path]
-        reader = MixSlice.load_from_file(path, public_metafiles)
-        return reader.decrypt()
+        return MixSlice.decrypt(path, self.key, self.iv)
 
     def _encrypt(self, path):
         plaintext = self.open_files[path].read_all()
-        public_metafile = self.public_metafiles[path]
-        private_metafile = self.private_metafiles[path]
-
-        owner = MixSlice.encrypt(plaintext, self.key, self.iv)
-        owner.save_to_files(path, public_metafile, private_metafile)
+        MixSlice.encrypt(plaintext, path, self.key, self.iv)
 
     # ------------------------------------------------------ Methods
 
-    def open(self, path, public_metafile_path, private_metafile_path, mtime):
+    def open(self, path, mtime):
         with LOCK:
             if path in self.open_files:
                 self.open_counters[path] += 1
                 return
-
-            self.public_metafiles[path] = public_metafile_path
-            self.private_metafiles[path] = private_metafile_path
 
             self.open_files[path] = FileByteContent(self._decrypt(path))
             self.open_counters[path] = 1
@@ -57,11 +46,9 @@ class EncFilesManager():
         self.atimes[path] = int(time())
         self.mtimes[path] = mtime
 
-    def create(self, path, public_metafile_path, private_metafile_path):
+    def create(self, path):
         with LOCK:
             if path not in self.open_files:
-                self.public_metafiles[path] = public_metafile_path
-                self.private_metafiles[path] = private_metafile_path
                 
                 self.open_files[path] = FileByteContent(b'')
                 self.open_counters[path] = 1
@@ -136,8 +123,6 @@ class EncFilesManager():
             del self.open_files[path]
             del self.open_counters[path]
             del self.touched_files[path]
-            del self.public_metafiles[path]
-            del self.private_metafiles[path]
             del self.atimes[path]
             del self.mtimes[path]
 
@@ -156,15 +141,11 @@ class EncFilesManager():
             self.open_files[new] = self.open_files[old]
             self.open_counters[new] = self.open_counters[old]
             self.touched_files[new] = self.touched_files[old]
-            self.public_metafiles[new] = self.public_metafiles[old]
-            self.private_metafiles[new] = self.private_metafiles[old]
             self.atimes[new] = self.atimes[old]
             self.mtimes[new] = self.mtimes[old]
 
             del self.open_files[old]
             del self.open_counters[old]
             del self.touched_files[old]
-            del self.public_metafiles[old]
-            del self.private_metafiles[old]
             del self.atimes[old]
             del self.mtimes[old]

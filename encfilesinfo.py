@@ -1,40 +1,38 @@
 import json
 import os
-from aesmix import MixSlice
 
-
-def size_decrypt(path, public_metadata):
-    reader = MixSlice.load_from_file(path, public_metadata)
-    return len(reader.decrypt())
+from mixslice import MixSlice
 
 
 class EncFilesInfo():
-    def __init__(self, path, public_metadata, file_finfo):
+    def __init__(self, path, file_finfo, key=None, iv=None):
         self._path = path
-        self._public_metadata = public_metadata
         self._file_finfo = file_finfo
+        self.key = key if key is not None else b'K' * 16
+        self.iv = iv if iv is not None else b'I' * 16
         
-        self._size = size_decrypt(path, public_metadata)
-        self._update_finfo()
+        self._size = None
 
     # ------------------------------------------------------ Helpers
 
-    def _update_finfo(self):
-        finfo = {}
+    def _read_finfo(self):
+        finfo = None
         if os.path.isfile(self._file_finfo):
             with open(self._file_finfo) as f:
                 finfo = json.load(f)
-        
-        finfo['size'] = self._size
+        return finfo
 
+    def _get_plaintext_size(self):
+        return len(MixSlice.decrypt(self._path, self.key, self.iv))
+
+    def _write_finfo(self):
         with open(self._file_finfo, 'w') as f:
-            json.dump(finfo, f)
+            json.dump({'size': self._size}, f)
 
     # ------------------------------------------------------ Methods
 
-    def rename(self, path, public_metadata, file_finfo):
+    def rename(self, path, file_finfo):
         self._path = path
-        self._public_metadata = public_metadata
         self._file_finfo = file_finfo
 
         self._size = None
@@ -43,9 +41,16 @@ class EncFilesInfo():
 
     @property
     def size(self):
+        # Retrieve plaintext size when necessary
         if self._size is None:
-            self._size = size_decrypt(self._path, self._public_metadata)
-            self._update_finfo()
+            # Reuse info written to file when available, otherwise compute it
+            finfo = self._read_finfo()
+            if not finfo:
+                self._size = self._get_plaintext_size()
+                self._write_finfo()
+            else:
+                self._size = finfo["size"]
+                
         return self._size
 
     @size.setter
@@ -53,4 +58,4 @@ class EncFilesInfo():
         if self._size == value:
             return
         self._size = value
-        self._update_finfo()
+        self._write_finfo()
