@@ -1,5 +1,3 @@
-from mixslice import MixSlice
-import sys
 import os
 import errno
 import stat
@@ -26,9 +24,8 @@ def strip_dot_enc(path=''):
 
 
 class FreyaFS(Operations):
-    def __init__(self, root, metadata_root=None):
+    def __init__(self, root):
         self.root = root
-        self.metadata_root = metadata_root if metadata_root is not None else root
 
         # File .enc aperti
         self.enc_files = EncFilesManager()
@@ -42,12 +39,9 @@ class FreyaFS(Operations):
     def _full_path(self, path):
         return join_paths(self.root, path)
 
-    def _metadata_full_path(self, path):
-        return join_paths(self.metadata_root, path)
-
     def _metadata_names(self, path):
         filename = strip_dot_enc(path)
-        return self._metadata_full_path(f'{filename}.finfo')
+        return self._full_path(f'{filename}.finfo')
 
     def _update_enc_file_size(self, full_path):
         self.enc_info[full_path].size = self.enc_files.cur_size(full_path)
@@ -136,13 +130,9 @@ class FreyaFS(Operations):
 
     def rmdir(self, path):
         os.rmdir(self._full_path(path))
-        if self.root != self.metadata_root:
-            os.rmdir(self._metadata_full_path(path))
 
     def mkdir(self, path, mode):
         os.mkdir(self._full_path(path), mode)
-        if self.root != self.metadata_root:
-            os.mkdir(self._metadata_full_path(path), mode)
 
     def statfs(self, path):
         full_path = self._full_path(path)
@@ -194,10 +184,6 @@ class FreyaFS(Operations):
         else:
             # Rinomino una cartella
             os.rename(full_old_path, full_new_path)
-            if self.root != self.metadata_root:
-                old_metadata_path = self._metadata_full_path(old)
-                new_metadata_path = self._metadata_full_path(new)
-                os.rename(old_metadata_path, new_metadata_path)
 
     def link(self, target, name):
         return os.link(self._full_path(target), self._full_path(name))
