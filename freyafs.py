@@ -4,12 +4,12 @@ import stat
 import shutil
 
 from fuse import FuseOSError, Operations
-from encfilesmanager import EncFilesManager
-from encfilesinfo import EncFilesInfo
+from manager import Manager
+from metadata import Metadata
 
 
 def is_metadata(path=''):
-    return path.endswith('.finfo')
+    return path == ".freyafs"
 
 
 def join_paths(root, partial):
@@ -24,27 +24,23 @@ def strip_dot_enc(path=''):
 
 
 class FreyaFS(Operations):
-    def __init__(self, root):
+    def __init__(self, root, mountpoint):
         self.root = root
 
+        # Retrieve FreyaFS metadata
+        self.metadata = Metadata(os.path.join(root, ".freyafs"))
+
         # File .enc aperti
-        self.enc_files = EncFilesManager()
-        self.enc_info = {}
+        self.enc_files = Manager()
 
         print(f"[*] FreyaFS mounted")
-        print(f"Now you can access Mix&Slice encrypted data at {root} seemlessly through the FreyaFS mountpoint.")
+        print(f"Now, through the FreyaFS mountpoint ({mountpoint}), you can use a Mix&Slice encrypted filesystem seemlessly.")
+        print(f"FreyaFS will persist your encrypted data at {root}.")
 
     # --------------------------------------------------------------------- Helpers
 
     def _full_path(self, path):
         return join_paths(self.root, path)
-
-    def _metadata_names(self, path):
-        filename = strip_dot_enc(path)
-        return self._full_path(f'{filename}.finfo')
-
-    def _update_enc_file_size(self, full_path):
-        self.enc_info[full_path].size = self.enc_files.cur_size(full_path)
 
     def _is_file(self, path):
         if not os.path.exists(self._full_path(path)):
@@ -71,7 +67,6 @@ class FreyaFS(Operations):
     # Attributi di path (file o cartella)
     def getattr(self, path, fh=None):
         full_path = self._full_path(path)
-        finfo = self._metadata_names(path)
 
         st = os.lstat(full_path)
 
@@ -87,8 +82,11 @@ class FreyaFS(Operations):
                                                             'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
         try:
-            if full_path not in self.enc_info:
-                self.enc_info[full_path] = EncFilesInfo(full_path, finfo)
+
+            if full_path in self.metadata:
+                print(f"{full_path} = {self.metadata[full_path]}")
+            else:
+                print(f"{full_path} = unknown")
 
             return {
                 'st_mode': stat.S_IFREG | (st.st_mode & ~stat.S_IFDIR),
@@ -97,7 +95,7 @@ class FreyaFS(Operations):
                 'st_ctime': st.st_ctime,
                 'st_gid': st.st_gid,
                 'st_mtime': st.st_mtime,
-                'st_size': self.enc_info[full_path].size,
+                'st_size': self.metadata[full_path],
                 'st_uid': st.st_uid
             }
         except:
@@ -143,15 +141,8 @@ class FreyaFS(Operations):
 
     def unlink(self, path):
         full_path = self._full_path(path)
-        finfo = self._metadata_names(path)
-
-        if os.path.isfile(finfo):
-            os.unlink(finfo)
-
-        if full_path in self.enc_info:
-            del self.enc_info[full_path]
-
         shutil.rmtree(full_path)
+        self.metadata.remove(full_path)
         return
 
     def symlink(self, name, target):
@@ -166,33 +157,21 @@ class FreyaFS(Operations):
             if self._is_file(new):
                 self.unlink(new)
 
-            old_finfo = self._metadata_names(old)
-            new_finfo = self._metadata_names(new)
-
-            if os.path.isfile(old_finfo):
-                os.rename(old_finfo, new_finfo)
-
             os.rename(full_old_path, full_new_path)
 
             if full_old_path in self.enc_files:
                 self.enc_files.rename(full_old_path, full_new_path)
-
-            if full_old_path in self.enc_info:
-                self.enc_info[full_old_path].rename(full_new_path, new_finfo)
-                self.enc_info[full_new_path] = self.enc_info[full_old_path]
-                del self.enc_info[full_old_path]
+            self.metadata.rename(full_old_path, full_new_path)
         else:
             # Rinomino una cartella
             os.rename(full_old_path, full_new_path)
+            self.metadata.renamedir(full_old_path, full_new_path)
 
     def link(self, target, name):
         return os.link(self._full_path(target), self._full_path(name))
 
     def utimens(self, path, times=None):
         os.utime(self._full_path(path), times)
-
-        finfo_metadata = self._metadata_names(path)
-        os.utime(finfo_metadata, times)
 
     # --------------------------------------------------------------------- File methods
 
@@ -206,6 +185,7 @@ class FreyaFS(Operations):
     def create(self, path, mode, fi=None):
         full_path = self._full_path(path)
         self.enc_files.create(full_path)
+        self.metadata.add(full_path)
         return 0
 
     def read(self, path, length, offset, fh):
@@ -220,7 +200,7 @@ class FreyaFS(Operations):
         full_path = self._full_path(path)
         if full_path in self.enc_files:
             bytes_written = self.enc_files.write_bytes(full_path, buf, offset)
-            self._update_enc_file_size(full_path)
+            self.metadata.update(full_path, self.enc_files.cur_size(full_path))
             return bytes_written
 
         os.lseek(fh, offset, os.SEEK_SET)
@@ -230,7 +210,7 @@ class FreyaFS(Operations):
         full_path = self._full_path(path)
         if full_path in self.enc_files:
             self.enc_files.truncate_bytes(full_path, length)
-            self._update_enc_file_size(full_path)
+            self.metadata.update(full_path, length)
             return
 
         with open(full_path, 'r+') as f:

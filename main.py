@@ -24,7 +24,12 @@ if __name__ == '__main__':
     data = args.data
     mountpoint = args.mountpoint
 
-    print(f"[*] Mounting FreyaFS to {mountpoint}")
+    print(f"[*] Mounting FreyaFS...")
 
-    FUSE(FreyaFS(data), mountpoint,
-         nothreads=not args.multithread, foreground=True)
+    fs = FreyaFS(data, mountpoint)
+    FUSE(fs, mountpoint, nothreads=not args.multithread, foreground=True)
+
+    print("\n[*] Unmounting FreyaFS...")
+    print("[*] FreyaFS unmounted")
+    print("[*] Updating FreyaFS metadata")
+    fs.metadata.dump()

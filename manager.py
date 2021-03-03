@@ -7,7 +7,7 @@ from mixslice import MixSlice
 
 LOCK = threading.Lock()
 
-class EncFilesManager():
+class Manager:
     def __init__(self, key=None, iv=None):
         self.key = key if key is not None else b'K' * 16
         self.iv = iv if iv is not None else b'I' * 16
@@ -49,7 +49,6 @@ class EncFilesManager():
     def create(self, path):
         with LOCK:
             if path not in self.open_files:
-                
                 self.open_files[path] = FileByteContent(b'')
                 self.open_counters[path] = 1
                 
