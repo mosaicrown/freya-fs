@@ -33,21 +33,17 @@ If you want to compile it:
 ## Usage
 
 ```
-usage: freyafs [-h] -d DATA [-m METADATA] [-t] MOUNT
+usage: main.py [-h] [-t] MOUNT DATA
 
 Freya File System - a Mix&Slice virtual file system
 
 positional arguments:
-  MOUNT                 mount point of FreyaFS
+  MOUNT              mount point of FreyaFS
+  DATA               folder containing your encrypted files
 
 optional arguments:
-  -h, --help            show this help message and exit
-  -d DATA, --data DATA  folder containing your encrypted files
-  -m METADATA, --metadata METADATA
-                        folder containing your .private and .public metadata files.
-                        The metadata files in this folder must have the same name and path as the corresponding encrypted file.
-                        If not specified, defaults to the --data folder.
-  -t, --multithread     run in multi-threaded mode. If not specified, defaults to the --data folder
+  -h, --help         show this help message and exit
+  -t, --multithread  run in multi-threaded mode
 ```
 
 ### From source
