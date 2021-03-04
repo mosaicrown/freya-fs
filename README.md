@@ -14,6 +14,7 @@
   ```bash
   pip install aesmix
   pip install fusepy
+  pip install pynacl
   ```
 
 If you want to compile it:
