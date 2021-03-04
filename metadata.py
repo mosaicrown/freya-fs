@@ -59,37 +59,28 @@ class Metadata:
     def __contains__(self, path):
         return path in self.metadata
 
-    def __setitem__(self, path, size):
-        print("__setitem__")
-        self.metadata[path].size = size
-
     def __getitem__(self, path):
         return self.metadata[path]
 
     def add(self, path):
-        print("add")
         info = Info()
         self.metadata[path] = info
         return info.key, info.iv
 
     def update(self, path, size):
-        print("update")
         self.metadata[path].size = size
 
     def renamedir(self, old, new):
-        print("renamedir")
         for path in list(self.metadata):
             if path.startswith(old):
                 to = path.replace(old, new, 1)
                 self.rename(path, to)
 
     def rename(self, old, new):
-        print("rename")
         self.metadata[new] = self.metadata[old]
         del self.metadata[old]
 
     def remove(self, path):
-        print("remove")
         del self.metadata[path]
 
     def dump(self):

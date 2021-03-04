@@ -66,12 +66,6 @@ class FreyaFS(Operations):
                                                             'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
         try:
-
-            if full_path in self.metadata:
-                print(f"{full_path} = {self.metadata[full_path].size}")
-            else:
-                print(f"{full_path} = unknown")
-
             return {
                 'st_mode': stat.S_IFREG | (st.st_mode & ~stat.S_IFDIR),
                 'st_nlink': 1,
