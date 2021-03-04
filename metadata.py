@@ -2,18 +2,17 @@ import base64
 import getpass
 import json
 import os
-import secrets
 import sys
 
 import nacl.pwhash
 import nacl.secret
+import nacl.utils
 
 
 class Info:
     def __init__(self, key=None, iv=None, size=None):
-        # TODO: consider using NaCl to randomly select these
-        self.key = key if key is not None else secrets.token_bytes(16)
-        self.iv = iv if iv is not None else secrets.token_bytes(16)
+        self.key = key if key is not None else nacl.utils.random(16)
+        self.iv = iv if iv is not None else nacl.utils.random(16)
         self.size = size if size is not None else 0
 
 class Metadata:
