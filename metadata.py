@@ -3,6 +3,7 @@ import getpass
 import json
 import os
 import secrets
+import sys
 
 import nacl.pwhash
 import nacl.secret
@@ -10,6 +11,7 @@ import nacl.secret
 
 class Info:
     def __init__(self, key=None, iv=None, size=None):
+        # TODO: consider using NaCl to randomly select these
         self.key = key if key is not None else secrets.token_bytes(16)
         self.iv = iv if iv is not None else secrets.token_bytes(16)
         self.size = size if size is not None else 0
@@ -18,8 +20,13 @@ class Metadata:
     def __init__(self, path):
         self.path = path
 
-        # TODO: manage first access
         pw = getpass.getpass("Password: ").encode("utf-8")
+        if not os.path.isfile(path):
+            confirm = getpass.getpass("Confirm password: ").encode("utf-8")
+            if pw != confirm:
+                print("ERROR: Your password and confirmation password do not match.")
+                sys.exit()
+       
         salt = b'\xd0\xe1\x03\xc2Z<R\xaf]\xfe\xd5\xbf\xf8u|\x8f'
 
         # Generate the key
