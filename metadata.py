@@ -41,8 +41,11 @@ class Metadata:
 
             # Decrypt metadata
             box = nacl.secret.SecretBox(self.key)
-            # TODO: add try catch on nacl.exceptions.CryptoError
-            plaintext = box.decrypt(encrypted)
+            try:
+                plaintext = box.decrypt(encrypted)
+            except nacl.exceptions.CryptoError:
+                print("ERROR: Wrong password.")
+                sys.exit()
 
             # Read JSON metadata
             read = json.loads(plaintext)
