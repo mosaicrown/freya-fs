@@ -31,5 +31,6 @@ if __name__ == '__main__':
 
     print("\n[*] Unmounting FreyaFS...")
     print("[*] FreyaFS unmounted")
-    print("[*] Updating FreyaFS metadata")
+    print("[*] Updating FreyaFS metadata...")
     fs.metadata.dump()
+    print("[*] FreyaFS metadata updated")

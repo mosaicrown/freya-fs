@@ -4,23 +4,13 @@ import stat
 import shutil
 
 from fuse import FuseOSError, Operations
-from manager import Manager
+
+from cache import Cache
 from metadata import Metadata
 
 
 def is_metadata(path=''):
     return path == ".freyafs"
-
-
-def join_paths(root, partial):
-    return os.path.join(root, partial.lstrip('/'))
-
-
-def strip_dot_enc(path=''):
-    if path.endswith('.enc'):
-        return '.'.join(path.split('.')[:-1])
-
-    return path
 
 
 class FreyaFS(Operations):
@@ -29,9 +19,8 @@ class FreyaFS(Operations):
 
         # Retrieve FreyaFS metadata
         self.metadata = Metadata(os.path.join(root, ".freyafs"))
-
-        # File .enc aperti
-        self.enc_files = Manager()
+        # Keep track of open files
+        self.cache = Cache()
 
         print(f"[*] FreyaFS mounted")
         print(f"Now, through the FreyaFS mountpoint ({mountpoint}), you can use a Mix&Slice encrypted filesystem seemlessly.")
@@ -39,8 +28,10 @@ class FreyaFS(Operations):
 
     # --------------------------------------------------------------------- Helpers
 
-    def _full_path(self, path):
-        return join_paths(self.root, path)
+    def _full_path(self, partial):
+        partial = partial.lstrip("/")
+        path = os.path.join(self.root, partial)
+        return path
 
     def _is_file(self, path):
         if not os.path.exists(self._full_path(path)):
@@ -70,21 +61,14 @@ class FreyaFS(Operations):
 
         st = os.lstat(full_path)
 
-        def _is_directory(path):
-            for file in os.listdir(path):
-                if not file.startswith("frag_") or not file.endswith(".dat") or \
-                        not os.path.isfile(os.path.join(path, file)):
-                    return True
-            return False
-
-        if _is_directory(self._full_path(path)):
+        if full_path not in self.metadata:
             return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
                                                             'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
 
         try:
 
             if full_path in self.metadata:
-                print(f"{full_path} = {self.metadata[full_path]}")
+                print(f"{full_path} = {self.metadata[full_path].size}")
             else:
                 print(f"{full_path} = unknown")
 
@@ -95,7 +79,7 @@ class FreyaFS(Operations):
                 'st_ctime': st.st_ctime,
                 'st_gid': st.st_gid,
                 'st_mtime': st.st_mtime,
-                'st_size': self.metadata[full_path],
+                'st_size': self.metadata[full_path].size,
                 'st_uid': st.st_uid
             }
         except:
@@ -159,8 +143,8 @@ class FreyaFS(Operations):
 
             os.rename(full_old_path, full_new_path)
 
-            if full_old_path in self.enc_files:
-                self.enc_files.rename(full_old_path, full_new_path)
+            if full_old_path in self.cache:
+                self.cache.rename(full_old_path, full_new_path)
             self.metadata.rename(full_old_path, full_new_path)
         else:
             # Rinomino una cartella
@@ -177,30 +161,31 @@ class FreyaFS(Operations):
 
     def open(self, path, flags):
         full_path = self._full_path(path)
-
+        info = self.metadata[full_path]
         attr = self.getattr(path)
-        self.enc_files.open(full_path, attr['st_mtime'])
+        mtime = attr['st_mtime']
+        self.cache.open(full_path, info.key, info.iv, mtime)
         return 0
 
     def create(self, path, mode, fi=None):
         full_path = self._full_path(path)
-        self.enc_files.create(full_path)
-        self.metadata.add(full_path)
+        key, iv = self.metadata.add(full_path)
+        self.cache.create(full_path, key, iv)
         return 0
 
     def read(self, path, length, offset, fh):
         full_path = self._full_path(path)
-        if full_path in self.enc_files:
-            return self.enc_files.read_bytes(full_path, offset, length)
+        if full_path in self.cache:
+            return self.cache.read_bytes(full_path, offset, length)
 
         os.lseek(fh, offset, os.SEEK_SET)
         return os.read(fh, length)
 
     def write(self, path, buf, offset, fh):
         full_path = self._full_path(path)
-        if full_path in self.enc_files:
-            bytes_written = self.enc_files.write_bytes(full_path, buf, offset)
-            self.metadata.update(full_path, self.enc_files.cur_size(full_path))
+        if full_path in self.cache:
+            bytes_written = self.cache.write_bytes(full_path, buf, offset)
+            self.metadata.update(full_path, self.cache.get_size(full_path))
             return bytes_written
 
         os.lseek(fh, offset, os.SEEK_SET)
@@ -208,8 +193,8 @@ class FreyaFS(Operations):
 
     def truncate(self, path, length, fh=None):
         full_path = self._full_path(path)
-        if full_path in self.enc_files:
-            self.enc_files.truncate_bytes(full_path, length)
+        if full_path in self.cache:
+            self.cache.truncate_bytes(full_path, length)
             self.metadata.update(full_path, length)
             return
 
@@ -218,16 +203,17 @@ class FreyaFS(Operations):
 
     def flush(self, path, fh):
         full_path = self._full_path(path)
-        if full_path in self.enc_files:
-            self.enc_files.flush(full_path)
+        if full_path in self.cache:
+            info = self.metadata[full_path]
+            self.cache.flush(full_path, info.key, info.iv)
             return 0
 
         return os.fsync(fh)
 
     def release(self, path, fh):
         full_path = self._full_path(path)
-        if full_path in self.enc_files:
-            self.enc_files.release(full_path)
+        if full_path in self.cache:
+            self.cache.release(full_path)
             return 0
 
         return os.close(fh)
