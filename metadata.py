@@ -29,7 +29,7 @@ class Metadata:
         salt = b'\xd0\xe1\x03\xc2Z<R\xaf]\xfe\xd5\xbf\xf8u|\x8f'
 
         # Generate the key
-        kdf = nacl.pwhash.argon2i.kdf
+        kdf = nacl.pwhash.argon2id.kdf
         self.key = kdf(nacl.secret.SecretBox.KEY_SIZE, pw, salt)
 
         self.metadata = {}
